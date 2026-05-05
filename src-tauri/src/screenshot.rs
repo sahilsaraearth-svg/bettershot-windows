@@ -171,5 +171,5 @@ pub fn capture_region_from_screen(
     
     let _ = std::fs::remove_file(&temp_path);
     
-    Ok(output_path.to_string_lossy().into_owned())
+    Ok(strip_unc_prefix(&output_path.to_string_lossy()))
 }

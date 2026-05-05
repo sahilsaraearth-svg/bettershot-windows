@@ -10,7 +10,7 @@ pub type AppResult<T> = Result<T, String>;
 /// Get the user's Desktop directory path (cross-platform)
 pub fn get_desktop_path() -> AppResult<String> {
     let desktop = dirs::desktop_dir().ok_or("Failed to get Desktop directory")?;
-    Ok(desktop.to_string_lossy().into_owned())
+    Ok(strip_unc_prefix(&desktop.to_string_lossy()))
 }
 
 /// Strip Windows extended-length path prefix (\\?\) which breaks asset protocol and web URLs.

@@ -71,9 +71,11 @@ pub fn save_image(img: &DynamicImage, save_dir: &str, prefix: &str) -> AppResult
 
 /// Save base64-encoded image data to a file
 pub fn save_base64_image(image_data: &str, save_dir: &str, prefix: &str) -> AppResult<String> {
+    // Accept any data URI: data:image/png;base64,... or data:image/jpeg;base64,...
     let base64_data = image_data
-        .strip_prefix("data:image/png;base64,")
-        .ok_or("Invalid image data format: expected data:image/png;base64, prefix")?;
+        .splitn(2, ',')
+        .nth(1)
+        .ok_or("Invalid image data: expected data:<type>;base64,<data>")?;
 
     let image_bytes = general_purpose::STANDARD
         .decode(base64_data)

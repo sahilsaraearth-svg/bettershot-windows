@@ -16,7 +16,7 @@ export function RegionSelector() {
   const selectionRef = useRef<SelectionRect | null>(null);
   const isSelectingRef = useRef(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     // RegionSelector mounts when the selector window becomes visible.
@@ -91,7 +91,8 @@ export function RegionSelector() {
 
   useEffect(() => {
     if (imgRef.current) draw(imgRef.current, selectionRef.current);
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick, draw]);
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     isSelectingRef.current = true;
