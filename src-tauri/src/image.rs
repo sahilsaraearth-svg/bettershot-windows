@@ -6,7 +6,7 @@ use imageproc::filter::gaussian_blur_f32;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::utils::{ensure_dir, generate_filename, strip_unc_prefix, AppResult};
+use crate::utils::{ensure_dir, generate_filename, resolve_path, AppResult};
 
 /// Region coordinates for cropping
 #[derive(Debug, Clone, Copy)]
@@ -66,7 +66,7 @@ pub fn save_image(img: &DynamicImage, save_dir: &str, prefix: &str) -> AppResult
     let file_path = dest_path.join(&filename);
 
     img.save(&file_path).map_err(|e| format!("Failed to save image: {}", e))?;
-    Ok(strip_unc_prefix(&file_path.to_string_lossy()))
+    Ok(resolve_path(&file_path.to_string_lossy()))
 }
 
 /// Save base64-encoded image data to a file
@@ -88,7 +88,7 @@ pub fn save_base64_image(image_data: &str, save_dir: &str, prefix: &str) -> AppR
     let file_path = dest_path.join(&filename);
 
     fs::write(&file_path, image_bytes).map_err(|e| format!("Failed to save image: {}", e))?;
-    Ok(strip_unc_prefix(&file_path.to_string_lossy()))
+    Ok(resolve_path(&file_path.to_string_lossy()))
 }
 
 /// Copy a screenshot file to a destination directory
@@ -105,7 +105,7 @@ pub fn copy_screenshot_to_dir(source_path: &str, save_dir: &str) -> AppResult<St
     let file_path = dest_path.join(&filename);
 
     fs::copy(&src_path, &file_path).map_err(|e| format!("Failed to copy screenshot: {}", e))?;
-    Ok(strip_unc_prefix(&file_path.to_string_lossy()))
+    Ok(resolve_path(&file_path.to_string_lossy()))
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

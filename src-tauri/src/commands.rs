@@ -8,7 +8,7 @@ use crate::image::{crop_image, render_image_with_effects, save_base64_image, Cro
 use crate::screenshot::{
     capture_all_monitors as capture_monitors, capture_primary, MonitorShot,
 };
-use crate::utils::{generate_filename, get_desktop_path, strip_unc_prefix};
+use crate::utils::{generate_filename, get_desktop_path, resolve_path};
 
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -84,16 +84,22 @@ pub async fn save_edited_image(
 #[tauri::command]
 pub async fn get_desktop_directory() -> Result<String, String> {
     // strip_unc_prefix handles Windows \\?\ prefix from dirs crate
-    get_desktop_path().map(|p| strip_unc_prefix(&p))
+    get_desktop_path()
 }
 
 #[tauri::command]
 pub async fn get_temp_directory() -> Result<String, String> {
+    // Use resolve_path to expand any 8.3 short path components (e.g. SAHILC~1)
     // Do NOT use .canonicalize() — on Windows it adds \\?\ prefix
     let p = std::env::temp_dir();
     p.to_str()
-        .map(|s| strip_unc_prefix(s))
+        .map(|s| resolve_path(s))
         .ok_or_else(|| "Failed to get temp directory".to_string())
+}
+
+/// Get the long-form temp dir path (resolves 8.3 short paths via GetLongPathNameW)
+fn get_long_temp_dir() -> String {
+    resolve_path(&std::env::temp_dir().to_string_lossy())
 }
 
 // ─── Native captures ─────────────────────────────────────────────────────────
@@ -102,7 +108,7 @@ pub async fn get_temp_directory() -> Result<String, String> {
 pub async fn native_capture_fullscreen(save_dir: String) -> Result<String, String> {
     let _lock = CAPTURE_LOCK.lock().map_err(|e| format!("Lock: {}", e))?;
     // Capture to temp first, then copy to save_dir so caller gets a persistent path
-    let temp = std::env::temp_dir().to_string_lossy().to_string();
+    let temp = get_long_temp_dir();
     let tmp_path = capture_primary(&temp)?;
     // Copy to final save_dir
     let dest = copy_to_save_dir(&tmp_path, &save_dir)?;
@@ -114,7 +120,7 @@ pub async fn native_capture_fullscreen(save_dir: String) -> Result<String, Strin
 pub async fn native_capture_window(save_dir: String) -> Result<String, String> {
     // Same as fullscreen on Windows — no interactive window picker yet
     let _lock = CAPTURE_LOCK.lock().map_err(|e| format!("Lock: {}", e))?;
-    let temp = std::env::temp_dir().to_string_lossy().to_string();
+    let temp = get_long_temp_dir();
     let tmp_path = capture_primary(&temp)?;
     let dest = copy_to_save_dir(&tmp_path, &save_dir)?;
     let _ = std::fs::remove_file(&tmp_path);
@@ -132,7 +138,7 @@ fn copy_to_save_dir(src: &str, save_dir: &str) -> Result<String, String> {
     let dest = dest_dir.join(&filename);
     std::fs::copy(src, &dest)
         .map_err(|e| format!("Failed to copy screenshot: {}", e))?;
-    Ok(strip_unc_prefix(&dest.to_string_lossy()))
+    Ok(resolve_path(&dest.to_string_lossy()))
 }
 
 #[tauri::command]
@@ -194,7 +200,7 @@ pub async fn native_capture_interactive(
     std::thread::sleep(std::time::Duration::from_millis(250));
 
     // Capture screen → base64 (avoids ALL Windows path issues)
-    let temp = std::env::temp_dir().to_string_lossy().to_string();
+    let temp = get_long_temp_dir();
     let path = capture_primary(&temp)?;
     let bytes = std::fs::read(&path)
         .map_err(|e| format!("Failed to read screenshot file: {}", e))?;
@@ -233,7 +239,7 @@ pub async fn capture_screen_for_selector() -> Result<String, String> {
     }
 
     // Fallback: capture a fresh screenshot (selector opened without native_capture_interactive)
-    let temp = std::env::temp_dir().to_string_lossy().to_string();
+    let temp = get_long_temp_dir();
     let path = capture_primary(&temp)?;
     let bytes = std::fs::read(&path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
@@ -307,5 +313,5 @@ pub async fn crop_and_save_region(
     cropped.save(&out)
         .map_err(|e| format!("Failed to save cropped screenshot: {}", e))?;
 
-    Ok(strip_unc_prefix(&out.to_string_lossy()))
+    Ok(resolve_path(&out.to_string_lossy()))
 }
