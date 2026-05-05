@@ -1,4 +1,4 @@
-//! Tauri commands module - Windows version
+//! Tauri commands module
 
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
@@ -12,27 +12,46 @@ use crate::utils::{generate_filename, get_desktop_path, resolve_path};
 
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
-// Stores the captured screenshot base64 for the region selector flow.
-// Written by native_capture_interactive, read by BOTH capture_screen_for_selector
-// (for display) AND crop_and_save_region (for cropping).
-// We keep a clone so both can use it without fighting over it.
+// Stores the full-screen base64 for the region selector flow.
+// Written by native_capture_interactive.
+// Read (cloned) by capture_screen_for_selector for display.
+// Consumed by crop_and_save_region for cropping.
 static PENDING_SCREENSHOT_B64: Mutex<Option<String>> = Mutex::new(None);
 
-// ─── Window management ────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Returns temp dir as long path string
+fn temp_dir() -> String {
+    resolve_path(&std::env::temp_dir().to_string_lossy())
+}
+
+/// Read a file and encode as data URI. The canonical way to pass images to the
+/// webview — no asset protocol scope issues, no path format issues.
+fn file_to_data_uri(path: &str) -> Result<String, String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("Failed to read '{}': {}", path, e))?;
+    let mime = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { "image/png" }
+               else if bytes.starts_with(&[0xFF, 0xD8]) { "image/jpeg" }
+               else { "image/png" };
+    Ok(format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes)))
+}
+
+// ─── Window ───────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn move_window_to_active_space(_app_handle: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-// ─── Clipboard ───────────────────────────────────────────────────────────────
+// ─── Clipboard ────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn copy_image_file_to_clipboard(path: String) -> Result<(), String> {
     copy_image_to_clipboard(&path).map_err(|e| e.to_string())
 }
 
-// ─── Basic captures ──────────────────────────────────────────────────────────
+// ─── Basic captures ───────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn capture_once(
@@ -62,6 +81,8 @@ pub async fn capture_region(
     crop_image(&screenshot_path, CropRegion { x, y, width, height }, &save_dir)
 }
 
+// ─── Render / save ────────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn render_image_with_effects_rust(
     image_path: String,
@@ -81,108 +102,57 @@ pub async fn save_edited_image(
     Ok(saved_path)
 }
 
+// ─── Directory helpers ────────────────────────────────────────────────────────
+
 #[tauri::command]
 pub async fn get_desktop_directory() -> Result<String, String> {
-    // strip_unc_prefix handles Windows \\?\ prefix from dirs crate
     get_desktop_path()
 }
 
 #[tauri::command]
 pub async fn get_temp_directory() -> Result<String, String> {
-    // Use resolve_path to expand any 8.3 short path components (e.g. SAHILC~1)
-    // Do NOT use .canonicalize() — on Windows it adds \\?\ prefix
-    let p = std::env::temp_dir();
-    p.to_str()
-        .map(|s| resolve_path(s))
-        .ok_or_else(|| "Failed to get temp directory".to_string())
+    Ok(temp_dir())
 }
 
-/// Get the long-form temp dir path (resolves 8.3 short paths via GetLongPathNameW)
-fn get_long_temp_dir() -> String {
-    resolve_path(&std::env::temp_dir().to_string_lossy())
-}
-
-// ─── Native captures ─────────────────────────────────────────────────────────
+// ─── Native fullscreen / window capture ───────────────────────────────────────
+//
+// Returns a data URI (data:image/png;base64,...) so the editor can load it
+// directly without going through Tauri's asset protocol.
+// The file is ALSO saved to save_dir so the user has a copy on disk.
 
 #[tauri::command]
 pub async fn native_capture_fullscreen(save_dir: String) -> Result<String, String> {
     let _lock = CAPTURE_LOCK.lock().map_err(|e| format!("Lock: {}", e))?;
-    // Capture to temp first, then copy to save_dir so caller gets a persistent path
-    let temp = get_long_temp_dir();
-    let tmp_path = capture_primary(&temp)?;
-    // Copy to final save_dir
-    let dest = copy_to_save_dir(&tmp_path, &save_dir)?;
-    let _ = std::fs::remove_file(&tmp_path);
-    Ok(dest)
+
+    // Save file to disk
+    let path = capture_primary(&save_dir)?;
+
+    // Return as data URI — editor reads this, no asset protocol needed
+    let data_uri = file_to_data_uri(&path)?;
+    Ok(data_uri)
 }
 
 #[tauri::command]
 pub async fn native_capture_window(save_dir: String) -> Result<String, String> {
-    // Same as fullscreen on Windows — no interactive window picker yet
+    // Same as fullscreen on Windows for now
     let _lock = CAPTURE_LOCK.lock().map_err(|e| format!("Lock: {}", e))?;
-    let temp = get_long_temp_dir();
-    let tmp_path = capture_primary(&temp)?;
-    let dest = copy_to_save_dir(&tmp_path, &save_dir)?;
-    let _ = std::fs::remove_file(&tmp_path);
-    Ok(dest)
+    let path = capture_primary(&save_dir)?;
+    let data_uri = file_to_data_uri(&path)?;
+    Ok(data_uri)
 }
 
-/// Copy a captured temp file into the final save_dir with a clean filename
-fn copy_to_save_dir(src: &str, save_dir: &str) -> Result<String, String> {
-    use std::path::PathBuf;
-    use crate::utils::ensure_dir;
-
-    let dest_dir = PathBuf::from(save_dir);
-    ensure_dir(&dest_dir)?;
-    let filename = generate_filename("screenshot", "png")?;
-    let dest = dest_dir.join(&filename);
-    std::fs::copy(src, &dest)
-        .map_err(|e| format!("Failed to copy screenshot: {}", e))?;
-    Ok(resolve_path(&dest.to_string_lossy()))
-}
-
-#[tauri::command]
-pub async fn play_screenshot_sound() -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        let _ = Command::new("powershell")
-            .args(["-WindowStyle", "Hidden", "-Command",
-                   "[System.Media.SystemSounds]::Asterisk.Play()"])
-            .spawn();
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_mouse_position() -> Result<(f64, f64), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use winapi::shared::windef::POINT;
-        use winapi::um::winuser::GetCursorPos;
-        let mut pt = POINT { x: 0, y: 0 };
-        if unsafe { GetCursorPos(&mut pt) } != 0 {
-            return Ok((pt.x as f64, pt.y as f64));
-        }
-    }
-    Ok((0.0, 0.0))
-}
-
-// ─── Region selector flow ────────────────────────────────────────────────────
+// ─── Region selector flow ─────────────────────────────────────────────────────
 //
 // 1. App.tsx calls native_capture_interactive
-//    → hides all windows, captures screen as base64, stores in PENDING_SCREENSHOT_B64,
-//      shows region-selector window, returns "ok"
+//    → captures screen → stores base64 in PENDING_SCREENSHOT_B64
+//    → shows region-selector window
 //
-// 2. RegionSelector mounts, calls capture_screen_for_selector
-//    → returns a CLONE of PENDING_SCREENSHOT_B64 (does NOT consume it)
-//    → displays screenshot, user draws rect
+// 2. RegionSelector mounts → calls capture_screen_for_selector
+//    → returns CLONE of PENDING_SCREENSHOT_B64 for display (does NOT clear it)
 //
-// 3. User confirms selection → RegionSelector hides itself,
-//    emits region-selected to main window
-//
-// 4. App.tsx calls crop_and_save_region
-//    → reads PENDING_SCREENSHOT_B64 (now consumed/cleared), crops, saves
+// 3. User draws region → App.tsx calls crop_and_save_region
+//    → consumes PENDING_SCREENSHOT_B64, crops, saves to disk
+//    → returns data URI so editor loads instantly
 
 #[tauri::command]
 pub async fn native_capture_interactive(
@@ -199,21 +169,17 @@ pub async fn native_capture_interactive(
     }
     std::thread::sleep(std::time::Duration::from_millis(250));
 
-    // Capture screen → base64 (avoids ALL Windows path issues)
-    let temp = get_long_temp_dir();
-    let path = capture_primary(&temp)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|e| format!("Failed to read screenshot file: {}", e))?;
+    // Capture to temp, encode to base64, delete temp file
+    let tmp = temp_dir();
+    let path = capture_primary(&tmp)?;
+    let data_uri = file_to_data_uri(&path)?;
     let _ = std::fs::remove_file(&path);
 
-    use base64::{engine::general_purpose, Engine as _};
-    let b64 = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&bytes));
-
-    // Store for both display (capture_screen_for_selector) and crop (crop_and_save_region)
+    // Store for region-selector display + crop
     {
         let mut lock = PENDING_SCREENSHOT_B64.lock()
-            .map_err(|e| format!("Mutex error: {}", e))?;
-        *lock = Some(b64);
+            .map_err(|e| format!("Mutex: {}", e))?;
+        *lock = Some(data_uri);
     }
 
     // Show region-selector window
@@ -225,40 +191,35 @@ pub async fn native_capture_interactive(
     Ok("ok".to_string())
 }
 
-/// Called by RegionSelector on mount to get the frozen screenshot.
-/// Returns a CLONE — does NOT consume the static, so crop_and_save_region can still use it.
+/// Returns a CLONE of the stored screenshot for the selector overlay to display.
+/// Does NOT consume it — crop_and_save_region needs it too.
 #[tauri::command]
 pub async fn capture_screen_for_selector() -> Result<String, String> {
-    // Try to return stored screenshot first (set by native_capture_interactive)
     {
         let lock = PENDING_SCREENSHOT_B64.lock()
-            .map_err(|e| format!("Mutex error: {}", e))?;
+            .map_err(|e| format!("Mutex: {}", e))?;
         if let Some(ref data) = *lock {
-            return Ok(data.clone()); // CLONE — don't take() — crop still needs it
+            return Ok(data.clone());
         }
     }
 
-    // Fallback: capture a fresh screenshot (selector opened without native_capture_interactive)
-    let temp = get_long_temp_dir();
-    let path = capture_primary(&temp)?;
-    let bytes = std::fs::read(&path)
-        .map_err(|e| format!("Failed to read screenshot: {}", e))?;
+    // Fallback: no stored screenshot, capture fresh
+    let tmp = temp_dir();
+    let path = capture_primary(&tmp)?;
+    let data_uri = file_to_data_uri(&path)?;
     let _ = std::fs::remove_file(&path);
 
-    use base64::{engine::general_purpose, Engine as _};
-    let b64 = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&bytes));
-
-    // Store it so crop_and_save_region can use it
     {
         let mut lock = PENDING_SCREENSHOT_B64.lock()
-            .map_err(|e| format!("Mutex error: {}", e))?;
-        *lock = Some(b64.clone());
+            .map_err(|e| format!("Mutex: {}", e))?;
+        *lock = Some(data_uri.clone());
     }
 
-    Ok(b64)
+    Ok(data_uri)
 }
 
-/// Called after region-selected event. Reads and CLEARS PENDING_SCREENSHOT_B64, crops, saves.
+/// Crops the stored screenshot and saves to disk.
+/// Returns a data URI for the editor to display directly.
 #[tauri::command]
 pub async fn crop_and_save_region(
     x: i32, y: i32,
@@ -266,32 +227,33 @@ pub async fn crop_and_save_region(
     save_dir: String,
 ) -> Result<String, String> {
     if width == 0 || height == 0 {
-        return Err("Invalid region: width and height must be > 0".to_string());
+        return Err("Invalid region: width/height must be > 0".to_string());
     }
 
     // Consume the stored screenshot
-    let b64 = {
+    let data_uri = {
         let mut lock = PENDING_SCREENSHOT_B64.lock()
-            .map_err(|e| format!("Mutex error: {}", e))?;
+            .map_err(|e| format!("Mutex: {}", e))?;
         lock.take()
-            .ok_or("No pending screenshot. Was native_capture_interactive called?")?
+            .ok_or("No pending screenshot — was native_capture_interactive called?")?
     };
 
     use base64::{engine::general_purpose, Engine as _};
     use crate::utils::ensure_dir;
     use std::path::PathBuf;
 
-    let raw = b64.splitn(2, ',').nth(1)
+    // Decode base64 → image
+    let raw = data_uri.splitn(2, ',').nth(1)
         .ok_or("Malformed base64 data URI")?;
     let bytes = general_purpose::STANDARD.decode(raw)
         .map_err(|e| format!("Base64 decode failed: {}", e))?;
     let img = image::load_from_memory(&bytes)
-        .map_err(|e| format!("Failed to decode screenshot image: {}", e))?;
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
 
     let iw = img.width();
     let ih = img.height();
 
-    // Clamp region to image bounds
+    // Clamp to image bounds
     let cx = (x.max(0) as u32).min(iw.saturating_sub(1));
     let cy = (y.max(0) as u32).min(ih.saturating_sub(1));
     let cw = width.min(iw.saturating_sub(cx));
@@ -299,38 +261,57 @@ pub async fn crop_and_save_region(
 
     if cw == 0 || ch == 0 {
         return Err(format!(
-            "Region ({},{} {}×{}) is outside image bounds ({}×{})",
+            "Region ({},{} {}×{}) is outside bounds ({}×{})",
             x, y, width, height, iw, ih
         ));
     }
 
     let cropped = img.crop_imm(cx, cy, cw, ch);
 
-    let dest = PathBuf::from(&save_dir);
-    ensure_dir(&dest)?;
+    // Save to disk
+    let dest_dir = PathBuf::from(&save_dir);
+    ensure_dir(&dest_dir)?;
     let fname = generate_filename("screenshot", "png")?;
-    let out = dest.join(&fname);
+    let out = dest_dir.join(&fname);
     cropped.save(&out)
-        .map_err(|e| format!("Failed to save cropped screenshot: {}", e))?;
+        .map_err(|e| format!("Failed to save: {}", e))?;
 
-    Ok(resolve_path(&out.to_string_lossy()))
+    // Return as data URI — no file path, no asset protocol
+    let cropped_bytes = std::fs::read(&out)
+        .map_err(|e| format!("Failed to read saved crop: {}", e))?;
+    Ok(format!(
+        "data:image/png;base64,{}",
+        general_purpose::STANDARD.encode(&cropped_bytes)
+    ))
 }
 
-/// Read any file and return it as a base64 data URI.
-/// This bypasses Tauri's asset protocol scope checks entirely —
-/// no short-path, no \\?\, no $TEMP scope issues.
+// ─── Misc ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn play_screenshot_sound() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        winapi::um::winuser::MessageBeep(0x00000000);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_mouse_position() -> Result<(i32, i32), String> {
+    #[cfg(target_os = "windows")]
+    {
+        let mut point = winapi::shared::windef::POINT { x: 0, y: 0 };
+        unsafe { winapi::um::winuser::GetCursorPos(&mut point); }
+        return Ok((point.x, point.y));
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok((0, 0))
+}
+
+/// Read a file and return it as a base64 data URI.
+/// Exposed as a command so the frontend can load arbitrary image files
+/// without going through Tauri's asset protocol.
 #[tauri::command]
 pub async fn read_file_as_base64(path: String) -> Result<String, String> {
-    use base64::{engine::general_purpose, Engine as _};
-    let bytes = std::fs::read(&path)
-        .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
-    // Detect PNG vs JPEG by magic bytes
-    let mime = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-        "image/png"
-    } else if bytes.starts_with(&[0xFF, 0xD8]) {
-        "image/jpeg"
-    } else {
-        "image/png" // default
-    };
-    Ok(format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes)))
+    file_to_data_uri(&path)
 }

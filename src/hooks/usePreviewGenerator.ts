@@ -465,7 +465,8 @@ export function usePreviewGenerator({
       if (!screenshotImage) return null;
 
       try {
-        if (settings.blurAmount > 0 && imagePath && (settings.backgroundType === "transparent" || settings.backgroundType === "white" || settings.backgroundType === "black" || settings.backgroundType === "gray" || settings.backgroundType === "custom")) {
+        // Only call Rust blur if imagePath is a real file path (not a data URI)
+        if (settings.blurAmount > 0 && imagePath && !imagePath.startsWith("data:") && (settings.backgroundType === "transparent" || settings.backgroundType === "white" || settings.backgroundType === "black" || settings.backgroundType === "gray" || settings.backgroundType === "custom")) {
           try {
             const { invoke } = await import("@tauri-apps/api/core");
             const rustRendered = await invoke<string>("render_image_with_effects_rust", {

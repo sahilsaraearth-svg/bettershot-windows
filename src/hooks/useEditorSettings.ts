@@ -4,24 +4,24 @@ import { gradientOptions, type GradientOption } from "@/components/editor/Backgr
 import { resolveBackgroundPath, getDefaultBackgroundPath } from "@/lib/asset-registry";
 
 // Import all background images
-import bgImage13 from "@/assets/bg-images/asset-13.jpg";
-import bgImage18 from "@/assets/bg-images/asset-18.jpg";
-import bgImage19 from "@/assets/bg-images/asset-19.jpg";
-import bgImage24 from "@/assets/bg-images/asset-24.avif";
-import bgImage25 from "@/assets/bg-images/asset-25.jpg";
-import bgImage26 from "@/assets/bg-images/asset-26.jpeg";
-import bgImage27 from "@/assets/bg-images/asset-27.jpeg";
-import bgImage28 from "@/assets/bg-images/asset-28.jpeg";
-import bgImage29 from "@/assets/bg-images/asset-29.jpeg";
-import bgImage30 from "@/assets/bg-images/asset-30.jpeg";
+import bgImage13 from "@/assets/backgrounds/asset-13.jpg";
+import bgImage18 from "@/assets/backgrounds/asset-18.jpg";
+import bgImage19 from "@/assets/backgrounds/asset-19.jpg";
+import bgImage24 from "@/assets/backgrounds/asset-24.avif";
+import bgImage25 from "@/assets/backgrounds/asset-25.jpg";
+import bgImage26 from "@/assets/backgrounds/asset-26.jpeg";
+import bgImage27 from "@/assets/backgrounds/asset-27.jpeg";
+import bgImage28 from "@/assets/backgrounds/asset-28.jpeg";
+import bgImage29 from "@/assets/backgrounds/asset-29.jpeg";
+import bgImage30 from "@/assets/backgrounds/asset-30.jpeg";
 
-import macImage3 from "@/assets/mac/mac-asset-3.jpg";
-import macImage5 from "@/assets/mac/mac-asset-5.jpg";
-import macImage6 from "@/assets/mac/mac-asset-6.jpeg";
-import macImage7 from "@/assets/mac/mac-asset-7.png";
-import macImage8 from "@/assets/mac/mac-asset-8.jpg";
-import macImage9 from "@/assets/mac/mac-asset-9.jpg";
-import macImage10 from "@/assets/mac/mac-asset-10.jpg";
+import macImage3 from "@/assets/wallpapers/wallpaper-3.jpg";
+import macImage5 from "@/assets/wallpapers/wallpaper-5.jpg";
+import macImage6 from "@/assets/wallpapers/wallpaper-6.jpeg";
+import macImage7 from "@/assets/wallpapers/wallpaper-7.png";
+import macImage8 from "@/assets/wallpapers/wallpaper-8.jpg";
+import macImage9 from "@/assets/wallpapers/wallpaper-9.jpg";
+import macImage10 from "@/assets/wallpapers/wallpaper-10.jpg";
 
 import type { AssetCategory } from "@/components/editor/AssetGrid";
 

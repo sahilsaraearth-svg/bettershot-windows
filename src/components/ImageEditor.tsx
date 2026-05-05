@@ -116,9 +116,13 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
 
     let cancelled = false;
 
-    // Use read_file_as_base64 to load the image — bypasses Tauri asset protocol
-    // scope checks entirely (no short-path, no \\?\ prefix, no $TEMP scope issues).
-    invoke<string>("read_file_as_base64", { path: imagePath })
+    // If already a data URI (returned by Rust capture commands), use directly.
+    // Otherwise read via Rust — bypasses Tauri asset protocol scope issues.
+    const loader = imagePath.startsWith("data:")
+      ? Promise.resolve(imagePath)
+      : invoke<string>("read_file_as_base64", { path: imagePath });
+
+    loader
       .then((dataUri) => {
         if (cancelled) return;
         const img = new Image();

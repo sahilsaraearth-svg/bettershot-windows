@@ -170,9 +170,13 @@ export async function processScreenshotWithDefaultBackground(
       reject(new Error(`Failed to load image from: ${imagePath}`));
     };
 
-    // Use read_file_as_base64 to bypass Tauri asset protocol scope issues
-    invoke<string>("read_file_as_base64", { path: imagePath })
-      .then((dataUri) => { img.src = dataUri; })
-      .catch((err) => reject(new Error(`Failed to read file '${imagePath}': ${err}`)));
+    // If already a data URI, use directly. Otherwise load via Rust to bypass asset protocol.
+    if (imagePath.startsWith("data:")) {
+      img.src = imagePath;
+    } else {
+      invoke<string>("read_file_as_base64", { path: imagePath })
+        .then((dataUri) => { img.src = dataUri; })
+        .catch((err) => reject(new Error(`Failed to read file '${imagePath}': ${err}`)));
+    }
   });
 }
