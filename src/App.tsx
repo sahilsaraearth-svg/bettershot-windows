@@ -191,12 +191,12 @@ function App() {
       unlistenSel = await listen<{ x: number; y: number; width: number; height: number }>("region-selected", async (event) => {
         if (!mounted) return;
         const { x, y, width, height } = event.payload;
-        const screenshotPath = pendingRegionCaptureRef.current;
-        if (!screenshotPath) return;
+        const screenshotData = pendingRegionCaptureRef.current;
+        if (!screenshotData) return;
         pendingRegionCaptureRef.current = null;
         const { autoApplyBackground: shouldAutoApply, saveDir: currentSaveDir, copyToClipboard: shouldCopyToClipboard, tempDir: td } = settingsRef.current;
         try {
-          const croppedPath = await invoke<string>("crop_and_save_region", { screenshotPath, x, y, width, height, saveDir: td || currentSaveDir });
+          const croppedPath = await invoke<string>("crop_and_save_region", { screenshotData, x, y, width, height, saveDir: td || currentSaveDir });
           invoke("play_screenshot_sound").catch(() => {});
           if (shouldAutoApply) {
             try {

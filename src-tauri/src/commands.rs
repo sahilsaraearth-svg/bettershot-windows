@@ -166,12 +166,13 @@ pub async fn get_mouse_position() -> Result<(f64, f64), String> {
 //      `region-selected` event with {x,y,w,h,screenshotPath}.
 //   3. Frontend calls `crop_and_save_region` → we crop and return final path.
 
-/// Step 1: capture screen, store path, show selector overlay
+/// Step 1: capture screen as base64, show selector overlay, return base64 data
+/// We use base64 to avoid all Windows path issues (short paths, backslashes, asset scope)
 #[tauri::command]
 pub async fn native_capture_interactive(app_handle: AppHandle, _save_dir: String) -> Result<String, String> {
     let _lock = CAPTURE_LOCK.lock().map_err(|e| format!("Lock error: {}", e))?;
 
-    // Hide main window so it doesn't appear in the capture
+    // Hide all windows so they don't appear in the capture
     if let Some(w) = app_handle.get_webview_window("main") {
         let _ = w.hide();
     }
@@ -179,12 +180,21 @@ pub async fn native_capture_interactive(app_handle: AppHandle, _save_dir: String
         let _ = w.hide();
     }
 
-    // Small delay so windows are gone before capture
-    std::thread::sleep(std::time::Duration::from_millis(150));
+    // Wait for windows to actually disappear
+    std::thread::sleep(std::time::Duration::from_millis(250));
 
-    // Capture to temp
-    let temp_dir = std::env::temp_dir().to_string_lossy().to_string();
-    let screenshot_path = capture_primary(&temp_dir)?;
+    // Capture screen to temp file
+    let temp_dir = std::env::temp_dir();
+    let temp_dir_str = temp_dir.to_string_lossy().to_string();
+    let screenshot_path = capture_primary(&temp_dir_str)?;
+
+    // Read file and encode as base64 — avoids ALL path issues on Windows
+    let data = std::fs::read(&screenshot_path)
+        .map_err(|e| format!("Failed to read screenshot: {}", e))?;
+    let _ = std::fs::remove_file(&screenshot_path);
+
+    use base64::{engine::general_purpose, Engine as _};
+    let base64_data = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&data));
 
     // Show region-selector window
     if let Some(sel) = app_handle.get_webview_window("region-selector") {
@@ -192,18 +202,20 @@ pub async fn native_capture_interactive(app_handle: AppHandle, _save_dir: String
         let _ = sel.set_focus();
     }
 
-    // Tell the selector where the screenshot is
+    // Send base64 screenshot directly to the selector
     app_handle
-        .emit("screenshot-ready-for-selection", screenshot_path.clone())
+        .emit("screenshot-ready-for-selection", base64_data.clone())
         .map_err(|e| format!("Emit error: {}", e))?;
 
-    Ok(screenshot_path)
+    // Return the base64 data — App.tsx stores this as pendingRegionCaptureRef
+    Ok(base64_data)
 }
 
-/// Step 3: crop the selected region and return path to the final image
+/// Step 3: crop the selected region from base64 screenshot data
+/// `screenshot_data` is either a file path OR a base64 data URI (data:image/png;base64,...)
 #[tauri::command]
 pub async fn crop_and_save_region(
-    screenshot_path: String,
+    screenshot_data: String,
     x: i32,
     y: i32,
     width: u32,
@@ -213,13 +225,48 @@ pub async fn crop_and_save_region(
     if width == 0 || height == 0 {
         return Err("Invalid selection region".to_string());
     }
-    let region = CropRegion {
-        x: x.max(0) as u32,
-        y: y.max(0) as u32,
-        width,
-        height,
+
+    use base64::{engine::general_purpose, Engine as _};
+    use crate::utils::{ensure_dir, generate_filename};
+    use std::path::PathBuf;
+
+    // Decode base64 data URI or read from file path
+    let img = if screenshot_data.starts_with("data:image") {
+        let b64 = screenshot_data
+            .splitn(2, ',')
+            .nth(1)
+            .ok_or("Invalid base64 data URI")?;
+        let bytes = general_purpose::STANDARD.decode(b64)
+            .map_err(|e| format!("Base64 decode error: {}", e))?;
+        image::load_from_memory(&bytes)
+            .map_err(|e| format!("Failed to decode image: {}", e))?
+    } else {
+        image::open(&screenshot_data)
+            .map_err(|e| format!("Failed to open screenshot: {}", e))?
     };
-    crop_image(&screenshot_path, region, &save_dir)
+
+    let img_w = img.width();
+    let img_h = img.height();
+
+    let cx = (x.max(0) as u32).min(img_w.saturating_sub(1));
+    let cy = (y.max(0) as u32).min(img_h.saturating_sub(1));
+    let cw = width.min(img_w.saturating_sub(cx));
+    let ch = height.min(img_h.saturating_sub(cy));
+
+    if cw == 0 || ch == 0 {
+        return Err(format!("Crop region out of bounds: {}x{} at ({},{}), image is {}x{}", width, height, x, y, img_w, img_h));
+    }
+
+    let cropped = img.crop_imm(cx, cy, cw, ch);
+
+    let save_path = PathBuf::from(&save_dir);
+    ensure_dir(&save_path)?;
+    let filename = generate_filename("screenshot", "png")?;
+    let out_path = save_path.join(&filename);
+    cropped.save(&out_path)
+        .map_err(|e| format!("Failed to save cropped screenshot: {}", e))?;
+
+    Ok(out_path.to_string_lossy().into_owned())
 }
 
 /// Capture screen and return base64 PNG — used by RegionSelector to show

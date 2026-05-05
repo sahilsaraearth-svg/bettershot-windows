@@ -11,44 +11,32 @@ interface SelectionRect {
 
 export function RegionSelector() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [screenshotData, setScreenshotData] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const selectionRef = useRef<SelectionRect | null>(null);
   const isSelectingRef = useRef(false);
-  const screenshotRef = useRef<HTMLImageElement | null>(null);
-  const [_tick, setTick] = useState(0); // force redraw
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [, setTick] = useState(0);
 
-  // Listen for screenshot path from backend, then display it
+  // Backend sends base64 PNG directly — no file path, no asset protocol, no encoding issues
   useEffect(() => {
     let unlisten: (() => void) | null = null;
 
-    const setup = async () => {
-      // Backend sends the path to the captured screenshot
-      unlisten = await listen<string>("screenshot-ready-for-selection", async (event) => {
-        const path = event.payload;
-        // Convert file path to asset URL via Tauri's asset protocol
-        const assetUrl = convertFileSrc(path);
-        setScreenshotData(assetUrl);
+    listen<string>("screenshot-ready-for-selection", (event) => {
+      const base64Data = event.payload; // "data:image/png;base64,..."
+      const img = new Image();
+      img.onload = () => {
+        imgRef.current = img;
+        resizeAndDraw(img, null);
+        setReady(true);
+      };
+      img.onerror = () => console.error("Failed to load base64 screenshot");
+      img.src = base64Data;
+    }).then(fn => { unlisten = fn; });
 
-        const img = new Image();
-        img.onload = () => {
-          screenshotRef.current = img;
-          drawCanvas(img, null);
-        };
-        img.src = assetUrl;
-      });
-    };
-
-    setup();
     return () => { unlisten?.(); };
   }, []);
 
-  // Simple inline convertFileSrc (same as @tauri-apps/api but avoids extra import)
-  function convertFileSrc(path: string): string {
-    const url = encodeURIComponent(path);
-    return `https://asset.localhost/${url}`;
-  }
-
-  const drawCanvas = useCallback((img: HTMLImageElement, sel: SelectionRect | null) => {
+  const resizeAndDraw = useCallback((img: HTMLImageElement, sel: SelectionRect | null) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -57,11 +45,11 @@ export function RegionSelector() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    // Draw the frozen screenshot
+    // Draw screenshot scaled to fill canvas
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // Semi-transparent dark overlay
-    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    // Dark overlay
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (sel) {
@@ -71,7 +59,7 @@ export function RegionSelector() {
       const h = Math.abs(sel.endY - sel.startY);
 
       if (w > 0 && h > 0) {
-        // Clear overlay on selection — shows the real screenshot through
+        // Show real screenshot through the selection
         ctx.clearRect(x, y, w, h);
         ctx.drawImage(img, x, y, w, h, x, y, w, h);
 
@@ -80,30 +68,40 @@ export function RegionSelector() {
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, w, h);
 
+        // Corner handles
+        const handleSize = 6;
+        ctx.fillStyle = "#3b82f6";
+        [[x, y], [x + w, y], [x, y + h], [x + w, y + h]].forEach(([hx, hy]) => {
+          ctx.fillRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+        });
+
         // Size label
         const label = `${Math.round(w)} × ${Math.round(h)}`;
         ctx.font = "bold 13px monospace";
-        const labelWidth = ctx.measureText(label).width + 14;
-        const labelY = y > 28 ? y - 26 : y + h + 4;
+        const lw = ctx.measureText(label).width + 14;
+        const lx = x;
+        const ly = y > 28 ? y - 26 : y + h + 4;
         ctx.fillStyle = "#3b82f6";
-        ctx.fillRect(x, labelY, labelWidth, 22);
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(label, x + 7, labelY + 15);
+        ctx.fillRect(lx, ly, lw, 22);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(label, lx + 7, ly + 15);
       }
     }
 
-    // Instructions at top
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.font = "bold 15px system-ui, sans-serif";
+    // Instruction banner
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, 0, canvas.width, 44);
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.font = "bold 14px system-ui, sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("Drag to select a region   •   Esc to cancel", canvas.width / 2, 36);
+    ctx.fillText("Drag to select a region   •   Esc to cancel", canvas.width / 2, 27);
     ctx.textAlign = "left";
   }, []);
 
-  // Redraw whenever selection changes
+  // Redraw on every tick (selection change)
   useEffect(() => {
-    if (screenshotRef.current) {
-      drawCanvas(screenshotRef.current, selectionRef.current);
+    if (imgRef.current) {
+      resizeAndDraw(imgRef.current, selectionRef.current);
     }
   });
 
@@ -130,17 +128,16 @@ export function RegionSelector() {
     const h = Math.abs(sel.endY - sel.startY);
 
     if (w < 8 || h < 8) {
-      // Too small — cancel
       selectionRef.current = null;
       setTick(t => t + 1);
       return;
     }
 
-    // Hide selector first
+    // Hide selector first so it doesn't block
     const win = getCurrentWindow();
     await win.hide();
 
-    // Emit to main window
+    // Tell main window what region was selected
     await emitTo("main", "region-selected", {
       x: Math.round(x),
       y: Math.round(y),
@@ -149,7 +146,7 @@ export function RegionSelector() {
     });
   }, []);
 
-  // Escape key cancels
+  // Escape cancels
   useEffect(() => {
     const onKey = async (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -163,16 +160,16 @@ export function RegionSelector() {
   }, []);
 
   return (
-    <div className="fixed inset-0 w-full h-full overflow-hidden" style={{ cursor: "crosshair", background: "transparent" }}>
-      {!screenshotData && (
-        <div className="flex items-center justify-center w-full h-full bg-black/60 text-white text-base font-medium">
+    <div className="fixed inset-0 w-full h-full overflow-hidden" style={{ cursor: "crosshair", background: "#000" }}>
+      {!ready && (
+        <div className="flex items-center justify-center w-full h-full bg-black text-white text-base font-medium">
           Preparing capture…
         </div>
       )}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ display: screenshotData ? "block" : "none", cursor: "crosshair" }}
+        className="absolute inset-0"
+        style={{ display: ready ? "block" : "none", cursor: "crosshair", width: "100%", height: "100%" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
