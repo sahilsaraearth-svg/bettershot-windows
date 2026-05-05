@@ -34,7 +34,7 @@ export async function processScreenshotWithDefaultBackground(
     }
 
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // Do NOT set crossOrigin for data URIs — Chromium webview refuses to load them
     
     img.onload = async () => {
       try {
@@ -47,7 +47,6 @@ export async function processScreenshotWithDefaultBackground(
 
         if (backgroundType === "image" || backgroundType === "gradient") {
           bgImage = new Image();
-          bgImage.crossOrigin = "anonymous";
           
           bgImage.onload = () => {
             try {

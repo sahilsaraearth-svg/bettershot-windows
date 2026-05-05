@@ -30,17 +30,15 @@ export async function loadImage(src: string): Promise<HTMLImageElement> {
 
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = "anonymous";
+    // No crossOrigin — data URIs and local assets don't need it,
+    // and setting it on data: URIs causes Chromium webview to reject the load
     img.onload = () => {
       addToCache(src, img);
       resolve(img);
     };
     img.onerror = (event) => {
-      const error = new Error(
-        `Failed to load image: ${src}. This may be due to CORS restrictions, ` +
-        `invalid path, or asset protocol scope issues in production builds.`
-      );
-      console.error("Image load error:", { src, event });
+      const error = new Error(`Failed to load image: ${src.startsWith("data:") ? "[data URI]" : src}`);
+      console.error("Image load error:", { src: src.startsWith("data:") ? "[data URI]" : src, event });
       reject(error);
     };
     img.src = src;
