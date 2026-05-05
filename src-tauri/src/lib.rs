@@ -1,4 +1,4 @@
-//! BetterShot for Windows - Screenshot capture and editing application
+//! ClipShot for Windows - Screenshot capture and editing application
 
 mod clipboard;
 mod commands;
@@ -22,7 +22,7 @@ fn show_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
         let _ = window.set_focus();
     } else {
         let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-            .title("Better Shot")
+            .title("ClipShot")
             .inner_size(1200.0, 800.0)
             .min_inner_size(800.0, 600.0)
             .center()
@@ -54,7 +54,7 @@ pub fn run() {
         .setup(|app| {
             // ── Main window (hidden on start) ──────────────────────────────
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Better Shot")
+                .title("ClipShot")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(800.0, 600.0)
                 .center()
@@ -77,7 +77,7 @@ pub fn run() {
                 "quick-overlay",
                 WebviewUrl::App("index.html?overlay=1".into()),
             )
-            .title("Better Shot – Quick Overlay")
+            .title("ClipShot – Quick Overlay")
             .inner_size(360.0, 240.0)
             .resizable(true)
             .decorations(true)
@@ -119,7 +119,7 @@ pub fn run() {
             // ── System tray ────────────────────────────────────────────────
             use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 
-            let open_item = MenuItemBuilder::with_id("open", "Open Better Shot").build(app)?;
+            let open_item = MenuItemBuilder::with_id("open", "Open ClipShot").build(app)?;
             let capture_region_item = MenuItemBuilder::with_id("capture_region", "Capture Region").build(app)?;
             let capture_screen_item = MenuItemBuilder::with_id("capture_screen", "Capture Screen").build(app)?;
             let capture_window_item = MenuItemBuilder::with_id("capture_window", "Capture Window").build(app)?;
@@ -147,7 +147,7 @@ pub fn run() {
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .menu(&menu)
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Better Shot")
+                .tooltip("ClipShot")
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "open" => {
                         let _ = show_main_window(app);

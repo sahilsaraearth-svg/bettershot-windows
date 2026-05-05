@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Better Shot",
+  "productName": "ClipShot",
   "version": "0.2.5",
-  "identifier": "com.bettershot.app",
+  "identifier": "com.clipshot.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

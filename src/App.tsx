@@ -382,7 +382,7 @@ function App() {
           <div className="absolute top-0 right-0"><SettingsIcon onClick={() => setMode("preferences")} /></div>
           <div className="flex flex-col items-center gap-1">
             <div className="flex items-center gap-2">
-              <h1 className="text-5xl font-bold text-foreground text-balance">Better Shot</h1>
+              <h1 className="text-5xl font-bold text-foreground text-balance">ClipShot</h1>
               <span className="rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">v{__APP_VERSION__}</span>
             </div>
             <p className="text-muted-foreground text-sm text-pretty">Capture, edit, and enhance your screenshots with professional quality.</p>

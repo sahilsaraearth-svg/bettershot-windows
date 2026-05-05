@@ -12,7 +12,7 @@ interface OnboardingFlowProps {
 const ONBOARDING_STEPS = [
   {
     id: "welcome",
-    title: "Welcome to Better Shot",
+    title: "Welcome to ClipShot",
     description:
       "Your open-source alternative to CleanShot X. Let's get you started with a quick tour of the app.",
     icon: (
@@ -29,7 +29,7 @@ const ONBOARDING_STEPS = [
   {
     id: "capture-modes",
     title: "Capture Modes",
-    description: "Better Shot offers three ways to capture your screen, each with a handy keyboard shortcut.",
+    description: "ClipShot offers three ways to capture your screen, each with a handy keyboard shortcut.",
     icon: (
       <svg className="size-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -208,7 +208,7 @@ const ONBOARDING_STEPS = [
         <div className="p-4 bg-secondary rounded-lg border border-border">
           <div className="text-sm font-medium text-foreground mb-1">Default background</div>
           <p className="text-xs text-muted-foreground text-pretty">
-            Choose the image Better Shot uses for auto-apply and as the starting point in the editor.
+            Choose the image ClipShot uses for auto-apply and as the starting point in the editor.
           </p>
         </div>
         <div className="p-4 bg-secondary rounded-lg border border-border">
@@ -230,7 +230,7 @@ const ONBOARDING_STEPS = [
     id: "permissions",
     title: "Screen Recording Permission",
     description:
-      "Better Shot needs Screen Recording permission from macOS before it can capture your screen.",
+      "ClipShot needs Screen Recording permission from macOS before it can capture your screen.",
     icon: (
       <svg className="size-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path
@@ -262,7 +262,7 @@ const ONBOARDING_STEPS = [
               <div className="text-sm font-medium text-amber-200">Required by macOS</div>
               <ul className="text-xs text-amber-300/80 space-y-1 text-pretty list-disc list-inside">
                 <li>macOS will ask for Screen Recording the first time you capture.</li>
-                <li>Better Shot cannot capture anything until this is granted.</li>
+                <li>ClipShot cannot capture anything until this is granted.</li>
               </ul>
             </div>
           </div>
@@ -273,8 +273,8 @@ const ONBOARDING_STEPS = [
             <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside text-pretty">
               <li>Click “Open System Settings” in the macOS prompt.</li>
               <li>Go to Privacy &amp; Security → Screen Recording.</li>
-              <li>Toggle on <span className="text-foreground font-mono">bettershot</span> in the list.</li>
-              <li>Restart Better Shot so the change takes effect.</li>
+              <li>Toggle on <span className="text-foreground font-mono">clipshot</span> in the list.</li>
+              <li>Restart ClipShot so the change takes effect.</li>
             </ol>
           </div>
           <div className="p-4 bg-secondary rounded-lg border border-border">
@@ -282,7 +282,7 @@ const ONBOARDING_STEPS = [
             <p className="text-xs text-muted-foreground text-pretty">
               macOS shows a dialog like{" "}
               <span className="text-foreground font-mono">
-                "bettershot" would like to record this computer&apos;s screen and audio.
+                "clipshot" would like to record this computer&apos;s screen and audio.
               </span>{" "}
               Click “Open System Settings” to grant access.
             </p>

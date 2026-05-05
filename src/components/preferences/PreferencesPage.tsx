@@ -209,7 +209,7 @@ export function PreferencesPage({ onBack, onSettingsChange }: PreferencesPagePro
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-foreground">Better Shot</p>
+              <p className="text-sm font-medium text-foreground">ClipShot</p>
               <p className="text-xs text-foreground0">Version {__APP_VERSION__}</p>
             </div>
           </CardContent>

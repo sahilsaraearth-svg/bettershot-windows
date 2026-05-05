@@ -1,4 +1,4 @@
-const ONBOARDING_STORAGE_KEY = "bettershot_onboarding_completed";
+const ONBOARDING_STORAGE_KEY = "clipshot_onboarding_completed";
 
 export function hasCompletedOnboarding(): boolean {
   if (typeof window === "undefined") return false;

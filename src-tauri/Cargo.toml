@@ -1,12 +1,12 @@
 [package]
-name = "bettershot"
+name = "clipshot"
 version = "0.2.5"
-description = "Better Shot - Screenshot Tool for Windows"
+description = "ClipShot - Screenshot Tool for Windows"
 authors = ["kartik labhshetwar"]
 edition = "2021"
 
 [lib]
-name = "bettershot"
+name = "clipshot"
 crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]

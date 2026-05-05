@@ -218,7 +218,7 @@ export function QuickOverlay() {
               No recent capture
             </p>
             <p className="text-xs text-muted-foreground text-pretty">
-              Take a screenshot with Better Shot to see it here instantly.
+              Take a screenshot with ClipShot to see it here instantly.
             </p>
           </div>
         </div>

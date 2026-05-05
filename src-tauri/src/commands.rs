@@ -76,7 +76,7 @@ pub async fn save_edited_image(
     save_dir: String,
     copy_to_clip: bool,
 ) -> Result<String, String> {
-    let saved_path = save_base64_image(&image_data, &save_dir, "bettershot")?;
+    let saved_path = save_base64_image(&image_data, &save_dir, "clipshot")?;
     if copy_to_clip { copy_image_to_clipboard(&saved_path)?; }
     Ok(saved_path)
 }
