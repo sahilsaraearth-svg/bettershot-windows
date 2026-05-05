@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { Copy, ImageDown, Loader2, Redo2, Undo2 } from "lucide-react";
@@ -114,30 +114,38 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
       return;
     }
 
-    const img = new Image();
-    img.onload = () => {
-      setScreenshotImage(img);
-      setImageLoaded(true);
+    let cancelled = false;
 
-      // Calculate smart default padding: 10% of average dimension, capped at 400px
-      const avgDimension = (img.width + img.height) / 2;
-      const defaultPadding = Math.min(Math.round(avgDimension * 0.1), 400);
-      actions.setPaddingTopTransient(defaultPadding);
-      actions.setPaddingBottomTransient(defaultPadding);
-      actions.setPaddingLeftTransient(defaultPadding);
-      actions.setPaddingRightTransient(defaultPadding);
-    };
-    img.onerror = () => {
-      setLoadError(`Failed to load image from: ${imagePath}`);
-    };
+    // Use read_file_as_base64 to load the image — bypasses Tauri asset protocol
+    // scope checks entirely (no short-path, no \\?\ prefix, no $TEMP scope issues).
+    invoke<string>("read_file_as_base64", { path: imagePath })
+      .then((dataUri) => {
+        if (cancelled) return;
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled) return;
+          setScreenshotImage(img);
+          setImageLoaded(true);
 
-    const assetUrl = convertFileSrc(imagePath);
-    img.crossOrigin = "anonymous";
-    img.src = assetUrl;
+          // Calculate smart default padding: 10% of average dimension, capped at 400px
+          const avgDimension = (img.width + img.height) / 2;
+          const defaultPadding = Math.min(Math.round(avgDimension * 0.1), 400);
+          actions.setPaddingTopTransient(defaultPadding);
+          actions.setPaddingBottomTransient(defaultPadding);
+          actions.setPaddingLeftTransient(defaultPadding);
+          actions.setPaddingRightTransient(defaultPadding);
+        };
+        img.onerror = () => {
+          if (!cancelled) setLoadError(`Failed to decode image from: ${imagePath}`);
+        };
+        img.src = dataUri;
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(`Failed to load image from: ${imagePath}\n${err}`);
+      });
 
     return () => {
-      img.onload = null;
-      img.onerror = null;
+      cancelled = true;
     };
   }, [imagePath, actions]);
 

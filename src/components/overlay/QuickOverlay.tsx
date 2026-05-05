@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Store } from "@tauri-apps/plugin-store";
@@ -28,6 +28,7 @@ export function QuickOverlay() {
   const [imageError, setImageError] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [imageSrcData, setImageSrcData] = useState<string | null>(null);
    const [isFadingOut, setIsFadingOut] = useState(false);
 
   useEffect(() => {
@@ -92,6 +93,21 @@ export function QuickOverlay() {
     };
   }, []);
 
+  // Load image as base64 whenever path changes — bypasses asset protocol scope issues
+  useEffect(() => {
+    if (!state.path) {
+      setImageSrcData(null);
+      return;
+    }
+    if (state.path.startsWith("data:")) {
+      setImageSrcData(state.path);
+      return;
+    }
+    invoke<string>("read_file_as_base64", { path: state.path })
+      .then((dataUri) => setImageSrcData(dataUri))
+      .catch(() => setImageSrcData(null));
+  }, [state.path]);
+
   useEffect(() => {
     if (!state.path) {
       setIsFadingOut(false);
@@ -141,11 +157,7 @@ export function QuickOverlay() {
     }
   }, [state.path, isCopying]);
 
-  const imageSrc = state.path
-    ? state.path.startsWith("data:")
-      ? state.path
-      : convertFileSrc(state.path)
-    : null;
+  const imageSrc = imageSrcData;
 
   return (
     <main className="h-dvh w-dvw bg-background text-foreground flex flex-col overflow-hidden">

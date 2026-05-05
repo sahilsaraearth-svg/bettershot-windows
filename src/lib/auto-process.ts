@@ -1,4 +1,4 @@
-import { convertFileSrc} from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { Store } from "@tauri-apps/plugin-store";
 import { createHighQualityCanvas } from "./canvas-utils";
 import { resolveBackgroundPath, getDefaultBackgroundPath } from "./asset-registry";
@@ -170,7 +170,9 @@ export async function processScreenshotWithDefaultBackground(
       reject(new Error(`Failed to load image from: ${imagePath}`));
     };
 
-    const assetUrl = convertFileSrc(imagePath);
-    img.src = assetUrl;
+    // Use read_file_as_base64 to bypass Tauri asset protocol scope issues
+    invoke<string>("read_file_as_base64", { path: imagePath })
+      .then((dataUri) => { img.src = dataUri; })
+      .catch((err) => reject(new Error(`Failed to read file '${imagePath}': ${err}`)));
   });
 }

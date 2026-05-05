@@ -11,7 +11,7 @@ use commands::{
     crop_and_save_region, capture_screen_for_selector,
     get_desktop_directory, get_mouse_position, get_temp_directory, move_window_to_active_space,
     native_capture_fullscreen, native_capture_interactive, native_capture_window,
-    play_screenshot_sound, render_image_with_effects_rust, save_edited_image,
+    play_screenshot_sound, read_file_as_base64, render_image_with_effects_rust, save_edited_image,
 };
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -192,6 +192,7 @@ pub fn run() {
             copy_image_file_to_clipboard,
             crop_and_save_region,
             capture_screen_for_selector,
+            read_file_as_base64,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

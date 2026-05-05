@@ -315,3 +315,22 @@ pub async fn crop_and_save_region(
 
     Ok(resolve_path(&out.to_string_lossy()))
 }
+
+/// Read any file and return it as a base64 data URI.
+/// This bypasses Tauri's asset protocol scope checks entirely —
+/// no short-path, no \\?\, no $TEMP scope issues.
+#[tauri::command]
+pub async fn read_file_as_base64(path: String) -> Result<String, String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("Failed to read file '{}': {}", path, e))?;
+    // Detect PNG vs JPEG by magic bytes
+    let mime = if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8]) {
+        "image/jpeg"
+    } else {
+        "image/png" // default
+    };
+    Ok(format!("data:{};base64,{}", mime, general_purpose::STANDARD.encode(&bytes)))
+}
