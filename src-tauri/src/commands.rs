@@ -3,6 +3,9 @@
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
+// Stores the last captured screenshot as base64 so crop_and_save_region can use it
+static PENDING_SCREENSHOT_B64: Mutex<Option<String>> = Mutex::new(None);
+
 use crate::clipboard::copy_image_to_clipboard;
 use crate::image::{crop_image, render_image_with_effects, save_base64_image, CropRegion, RenderSettings};
 use crate::screenshot::{
@@ -188,7 +191,7 @@ pub async fn native_capture_interactive(app_handle: AppHandle, _save_dir: String
     let temp_dir_str = temp_dir.to_string_lossy().to_string();
     let screenshot_path = capture_primary(&temp_dir_str)?;
 
-    // Read file and encode as base64 — avoids ALL path issues on Windows
+    // Read file and encode as base64 — avoids ALL Windows path issues
     let data = std::fs::read(&screenshot_path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
     let _ = std::fs::remove_file(&screenshot_path);
@@ -196,26 +199,25 @@ pub async fn native_capture_interactive(app_handle: AppHandle, _save_dir: String
     use base64::{engine::general_purpose, Engine as _};
     let base64_data = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&data));
 
-    // Show region-selector window
+    // Store for crop_and_save_region to use later
+    if let Ok(mut lock) = PENDING_SCREENSHOT_B64.lock() {
+        *lock = Some(base64_data.clone());
+    }
+
+    // Show region-selector window — it will call capture_screen_for_selector to fetch the stored data
     if let Some(sel) = app_handle.get_webview_window("region-selector") {
         let _ = sel.show();
         let _ = sel.set_focus();
     }
 
-    // Send base64 screenshot directly to the selector
-    app_handle
-        .emit("screenshot-ready-for-selection", base64_data.clone())
-        .map_err(|e| format!("Emit error: {}", e))?;
-
-    // Return the base64 data — App.tsx stores this as pendingRegionCaptureRef
-    Ok(base64_data)
+    Ok("ok".to_string())
 }
 
-/// Step 3: crop the selected region from base64 screenshot data
-/// `screenshot_data` is either a file path OR a base64 data URI (data:image/png;base64,...)
+/// Step 3: crop the region the user selected.
+/// Reads the screenshot from PENDING_SCREENSHOT_B64 (stored by native_capture_interactive).
+/// x/y/width/height are in CSS pixels of the selector overlay.
 #[tauri::command]
 pub async fn crop_and_save_region(
-    screenshot_data: String,
     x: i32,
     y: i32,
     width: u32,
@@ -230,20 +232,18 @@ pub async fn crop_and_save_region(
     use crate::utils::{ensure_dir, generate_filename};
     use std::path::PathBuf;
 
-    // Decode base64 data URI or read from file path
-    let img = if screenshot_data.starts_with("data:image") {
-        let b64 = screenshot_data
-            .splitn(2, ',')
-            .nth(1)
-            .ok_or("Invalid base64 data URI")?;
-        let bytes = general_purpose::STANDARD.decode(b64)
-            .map_err(|e| format!("Base64 decode error: {}", e))?;
-        image::load_from_memory(&bytes)
-            .map_err(|e| format!("Failed to decode image: {}", e))?
-    } else {
-        image::open(&screenshot_data)
-            .map_err(|e| format!("Failed to open screenshot: {}", e))?
-    };
+    // Pull screenshot from static store — set by native_capture_interactive
+    let b64_data = PENDING_SCREENSHOT_B64.lock()
+        .ok()
+        .and_then(|mut l| l.take())
+        .ok_or("No pending screenshot — call native_capture_interactive first")?;
+
+    let b64 = b64_data.splitn(2, ',').nth(1)
+        .ok_or("Invalid base64 data URI")?;
+    let bytes = general_purpose::STANDARD.decode(b64)
+        .map_err(|e| format!("Base64 decode error: {}", e))?;
+    let img = image::load_from_memory(&bytes)
+        .map_err(|e| format!("Failed to decode image: {}", e))?;
 
     let img_w = img.width();
     let img_h = img.height();
@@ -269,17 +269,24 @@ pub async fn crop_and_save_region(
     Ok(out_path.to_string_lossy().into_owned())
 }
 
-/// Capture screen and return base64 PNG — used by RegionSelector to show
-/// the frozen screenshot as background while user draws a rect
+/// Returns the pending screenshot as base64 for the RegionSelector to display.
+/// If native_capture_interactive already stored one, return that.
+/// Otherwise capture a fresh screenshot (fallback).
 #[tauri::command]
 pub async fn capture_screen_for_selector() -> Result<String, String> {
+    // Return the stored screenshot from native_capture_interactive if available
+    if let Ok(mut lock) = PENDING_SCREENSHOT_B64.lock() {
+        if let Some(data) = lock.take() {
+            return Ok(data);
+        }
+    }
+
+    // Fallback: capture fresh (e.g. called directly without native_capture_interactive)
     let temp_dir = std::env::temp_dir().to_string_lossy().to_string();
     let path = capture_primary(&temp_dir)?;
-
     let data = std::fs::read(&path)
         .map_err(|e| format!("Failed to read screenshot: {}", e))?;
     let _ = std::fs::remove_file(&path);
-
     use base64::{engine::general_purpose, Engine as _};
     Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&data)))
 }

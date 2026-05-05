@@ -191,12 +191,11 @@ function App() {
       unlistenSel = await listen<{ x: number; y: number; width: number; height: number }>("region-selected", async (event) => {
         if (!mounted) return;
         const { x, y, width, height } = event.payload;
-        const screenshotData = pendingRegionCaptureRef.current;
-        if (!screenshotData) return;
         pendingRegionCaptureRef.current = null;
         const { autoApplyBackground: shouldAutoApply, saveDir: currentSaveDir, copyToClipboard: shouldCopyToClipboard, tempDir: td } = settingsRef.current;
         try {
-          const croppedPath = await invoke<string>("crop_and_save_region", { screenshotData, x, y, width, height, saveDir: td || currentSaveDir });
+          // screenshotData lives in Rust static — just pass coords + saveDir
+          const croppedPath = await invoke<string>("crop_and_save_region", { x, y, width, height, saveDir: td || currentSaveDir });
           invoke("play_screenshot_sound").catch(() => {});
           if (shouldAutoApply) {
             try {
@@ -243,10 +242,11 @@ function App() {
         const allWindows = await getAllWebviewWindows();
         const selector = allWindows.find((win) => win.label === "region-selector");
         if (selector) {
-          const screenshotPath = await invoke<string>("native_capture_interactive", { saveDir: currentTempDir || currentSaveDir });
-          pendingRegionCaptureRef.current = screenshotPath;
+          // Rust captures screen, stores base64 in static, shows selector window
+          await invoke("native_capture_interactive", { saveDir: currentTempDir || currentSaveDir });
+          pendingRegionCaptureRef.current = "pending"; // just a flag — actual data is in Rust
+          // Selector window is already shown by Rust; ensure fullscreen
           await selector.setFullscreen(true);
-          await selector.show();
           await selector.setFocus();
         } else {
           const screenshotPath = await invoke<string>("native_capture_fullscreen", { saveDir: currentTempDir || currentSaveDir });
