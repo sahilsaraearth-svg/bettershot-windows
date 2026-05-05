@@ -33,10 +33,42 @@ export async function processScreenshotWithDefaultBackground(
       console.error("Failed to load default background from settings:", err);
     }
 
-    const img = new Image();
-    // Do NOT set crossOrigin for data URIs — Chromium webview refuses to load them
-    
-    img.onload = async () => {
+    // Decode the screenshot via createImageBitmap — bypasses all src/onerror/crossOrigin issues
+    let img: HTMLImageElement;
+    try {
+      const dataUri = imagePath.startsWith("data:")
+        ? imagePath
+        : await invoke<string>("read_file_as_base64", { path: imagePath });
+
+      const commaIdx = dataUri.indexOf(",");
+      const mime = dataUri.slice(5, dataUri.indexOf(";"));
+      const b64 = dataUri.slice(commaIdx + 1);
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mime });
+      const bitmap = await createImageBitmap(blob);
+      const offscreen = document.createElement("canvas");
+      offscreen.width = bitmap.width;
+      offscreen.height = bitmap.height;
+      offscreen.getContext("2d")!.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const imgBlob = await new Promise<Blob>((res, rej) =>
+        offscreen.toBlob(b => b ? res(b) : rej(new Error("toBlob failed")), "image/png")
+      );
+      const objUrl = URL.createObjectURL(imgBlob);
+      img = await new Promise<HTMLImageElement>((res, rej) => {
+        const el = new Image();
+        el.onload = () => { URL.revokeObjectURL(objUrl); res(el); };
+        el.onerror = () => { URL.revokeObjectURL(objUrl); rej(new Error("img load failed")); };
+        el.src = objUrl;
+      });
+    } catch (err) {
+      return reject(err);
+    }
+
+    // img is now loaded — run the rest synchronously
+    (() => {
       try {
         const avgDimension = (img.width + img.height) / 2;
         const padding = Math.min(Math.round(avgDimension * 0.1), 400);
@@ -163,19 +195,6 @@ export async function processScreenshotWithDefaultBackground(
       } catch (err) {
         reject(err);
       }
-    };
-    
-    img.onerror = () => {
-      reject(new Error(`Failed to load image from: ${imagePath}`));
-    };
-
-    // If already a data URI, use directly. Otherwise load via Rust to bypass asset protocol.
-    if (imagePath.startsWith("data:")) {
-      img.src = imagePath;
-    } else {
-      invoke<string>("read_file_as_base64", { path: imagePath })
-        .then((dataUri) => { img.src = dataUri; })
-        .catch((err) => reject(new Error(`Failed to read file '${imagePath}': ${err}`)));
-    }
+    })();
   });
 }

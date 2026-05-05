@@ -115,31 +115,55 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
     }
 
     let cancelled = false;
-    let objectUrl: string | null = null;
 
     const loadImage = async () => {
       try {
-        // Get raw bytes via Rust — works regardless of path format or asset protocol scope
+        // Step 1: get data URI from Rust (handles both file paths and existing data URIs)
         const dataUri = imagePath.startsWith("data:")
           ? imagePath
           : await invoke<string>("read_file_as_base64", { path: imagePath });
 
         if (cancelled) return;
 
-        // Convert data URI → Blob → object URL
-        // blob: URLs work reliably in Tauri webview; data: URIs can fail on large images
-        const [header, b64] = dataUri.split(",");
-        const mime = header.split(":")[1].split(";")[0];
+        // Step 2: data URI → Uint8Array bytes
+        const commaIdx = dataUri.indexOf(",");
+        const mime = dataUri.slice(5, dataUri.indexOf(";"));
+        const b64 = dataUri.slice(commaIdx + 1);
         const binary = atob(b64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: mime });
-        objectUrl = URL.createObjectURL(blob);
 
-        if (cancelled) { URL.revokeObjectURL(objectUrl); return; }
+        if (cancelled) return;
+
+        // Step 3: bytes → Blob → ImageBitmap
+        // createImageBitmap is the most direct decode path — no src/onerror/onload dance
+        const blob = new Blob([bytes], { type: mime });
+        const bitmap = await createImageBitmap(blob);
+
+        if (cancelled) { bitmap.close(); return; }
+
+        // Step 4: draw ImageBitmap onto an offscreen canvas → get HTMLImageElement
+        // usePreviewGenerator needs an HTMLImageElement with .width/.height
+        const offscreen = document.createElement("canvas");
+        offscreen.width = bitmap.width;
+        offscreen.height = bitmap.height;
+        const ctx = offscreen.getContext("2d")!;
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+
+        if (cancelled) return;
+
+        // Step 5: canvas → blob → object URL → HTMLImageElement
+        const imgBlob = await new Promise<Blob>((res, rej) =>
+          offscreen.toBlob(b => b ? res(b) : rej(new Error("toBlob failed")), "image/png")
+        );
+        const objUrl = URL.createObjectURL(imgBlob);
+
+        if (cancelled) { URL.revokeObjectURL(objUrl); return; }
 
         const img = new Image();
         img.onload = () => {
+          URL.revokeObjectURL(objUrl);
           if (cancelled) return;
           setScreenshotImage(img);
           setImageLoaded(true);
@@ -151,20 +175,22 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
           actions.setPaddingRightTransient(defaultPadding);
         };
         img.onerror = () => {
-          if (!cancelled) setLoadError("Failed to decode screenshot image");
+          URL.revokeObjectURL(objUrl);
+          if (!cancelled) setLoadError("Failed to finalize screenshot image");
         };
-        img.src = objectUrl;
+        img.src = objUrl;
+
       } catch (err) {
-        if (!cancelled) setLoadError(`Failed to load screenshot: ${err instanceof Error ? err.message : String(err)}`);
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setLoadError(`Failed to load screenshot: ${msg}`);
+        }
       }
     };
 
     loadImage();
 
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
+    return () => { cancelled = true; };
   }, [imagePath, actions]);
 
   // Save handler
