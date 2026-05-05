@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
+import { listen, emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface SelectionRect {
@@ -13,41 +12,41 @@ interface SelectionRect {
 export function RegionSelector() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [screenshotData, setScreenshotData] = useState<string | null>(null);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [selection, setSelection] = useState<SelectionRect | null>(null);
   const selectionRef = useRef<SelectionRect | null>(null);
   const isSelectingRef = useRef(false);
   const screenshotRef = useRef<HTMLImageElement | null>(null);
+  const [_tick, setTick] = useState(0); // force redraw
 
-  // Load screenshot when selector opens
+  // Listen for screenshot path from backend, then display it
   useEffect(() => {
-    const loadScreenshot = async () => {
-      try {
-        const data = await invoke<string>("capture_screen_for_selector");
-        setScreenshotData(data);
-        
+    let unlisten: (() => void) | null = null;
+
+    const setup = async () => {
+      // Backend sends the path to the captured screenshot
+      unlisten = await listen<string>("screenshot-ready-for-selection", async (event) => {
+        const path = event.payload;
+        // Convert file path to asset URL via Tauri's asset protocol
+        const assetUrl = convertFileSrc(path);
+        setScreenshotData(assetUrl);
+
         const img = new Image();
         img.onload = () => {
           screenshotRef.current = img;
           drawCanvas(img, null);
         };
-        img.src = data;
-      } catch (err) {
-        console.error("Failed to capture screen:", err);
-      }
+        img.src = assetUrl;
+      });
     };
 
-    loadScreenshot();
-
-    // Also listen for screenshot ready events
-    const unlisten = listen<string>("screenshot-ready-for-selection", (_event) => {
-      // Already handled by capture_screen_for_selector
-    });
-
-    return () => {
-      unlisten.then(fn => fn());
-    };
+    setup();
+    return () => { unlisten?.(); };
   }, []);
+
+  // Simple inline convertFileSrc (same as @tauri-apps/api but avoids extra import)
+  function convertFileSrc(path: string): string {
+    const url = encodeURIComponent(path);
+    return `https://asset.localhost/${url}`;
+  }
 
   const drawCanvas = useCallback((img: HTMLImageElement, sel: SelectionRect | null) => {
     const canvas = canvasRef.current;
@@ -58,11 +57,11 @@ export function RegionSelector() {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    // Draw screenshot
+    // Draw the frozen screenshot
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-    // Darken overlay
-    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    // Semi-transparent dark overlay
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (sel) {
@@ -72,61 +71,57 @@ export function RegionSelector() {
       const h = Math.abs(sel.endY - sel.startY);
 
       if (w > 0 && h > 0) {
-        // Clear the selected region (show it bright)
+        // Clear overlay on selection — shows the real screenshot through
         ctx.clearRect(x, y, w, h);
         ctx.drawImage(img, x, y, w, h, x, y, w, h);
 
-        // Draw selection border
+        // Blue selection border
         ctx.strokeStyle = "#3b82f6";
         ctx.lineWidth = 2;
         ctx.strokeRect(x, y, w, h);
 
-        // Draw size indicator
-        const label = `${w} × ${h}`;
-        ctx.font = "bold 14px monospace";
+        // Size label
+        const label = `${Math.round(w)} × ${Math.round(h)}`;
+        ctx.font = "bold 13px monospace";
+        const labelWidth = ctx.measureText(label).width + 14;
+        const labelY = y > 28 ? y - 26 : y + h + 4;
         ctx.fillStyle = "#3b82f6";
-        ctx.fillRect(x, y > 24 ? y - 24 : y + 4, ctx.measureText(label).width + 12, 22);
+        ctx.fillRect(x, labelY, labelWidth, 22);
         ctx.fillStyle = "#ffffff";
-        ctx.fillText(label, x + 6, y > 24 ? y - 6 : y + 19);
+        ctx.fillText(label, x + 7, labelY + 15);
       }
     }
 
-    // Draw crosshair instructions
-    if (!sel) {
-      ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.font = "bold 16px system-ui";
-      ctx.textAlign = "center";
-      ctx.fillText("Click and drag to select a region • Press Esc to cancel", canvas.width / 2, 36);
-      ctx.textAlign = "left";
-    }
+    // Instructions at top
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "bold 15px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Drag to select a region   •   Esc to cancel", canvas.width / 2, 36);
+    ctx.textAlign = "left";
   }, []);
 
-  // Redraw on selection change
+  // Redraw whenever selection changes
   useEffect(() => {
     if (screenshotRef.current) {
-      drawCanvas(screenshotRef.current, selection);
+      drawCanvas(screenshotRef.current, selectionRef.current);
     }
-  }, [selection, drawCanvas]);
+  });
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     isSelectingRef.current = true;
-    setIsSelecting(true);
-    const rect = { startX: e.clientX, startY: e.clientY, endX: e.clientX, endY: e.clientY };
-    selectionRef.current = rect;
-    setSelection(rect);
+    selectionRef.current = { startX: e.clientX, startY: e.clientY, endX: e.clientX, endY: e.clientY };
+    setTick(t => t + 1);
   }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isSelectingRef.current || !selectionRef.current) return;
-    const updated = { ...selectionRef.current, endX: e.clientX, endY: e.clientY };
-    selectionRef.current = updated;
-    setSelection(updated);
+    selectionRef.current = { ...selectionRef.current, endX: e.clientX, endY: e.clientY };
+    setTick(t => t + 1);
   }, []);
 
-  const handleMouseUp = useCallback(async (_e: React.MouseEvent) => {
+  const handleMouseUp = useCallback(async () => {
     if (!isSelectingRef.current || !selectionRef.current) return;
     isSelectingRef.current = false;
-    setIsSelecting(false);
 
     const sel = selectionRef.current;
     const x = Math.min(sel.startX, sel.endX);
@@ -134,56 +129,54 @@ export function RegionSelector() {
     const w = Math.abs(sel.endX - sel.startX);
     const h = Math.abs(sel.endY - sel.startY);
 
-    if (w < 5 || h < 5) {
-      // Too small, cancel
-      setSelection(null);
+    if (w < 8 || h < 8) {
+      // Too small — cancel
       selectionRef.current = null;
+      setTick(t => t + 1);
       return;
     }
 
-    try {
-      // Emit the selection back to the main window
-      await emit("region-selected", { x, y, width: w, height: h });
-      
-      // Hide selector window
-      const win = getCurrentWindow();
-      await win.hide();
-    } catch (err) {
-      console.error("Failed to emit selection:", err);
-    }
+    // Hide selector first
+    const win = getCurrentWindow();
+    await win.hide();
+
+    // Emit to main window
+    await emitTo("main", "region-selected", {
+      x: Math.round(x),
+      y: Math.round(y),
+      width: Math.round(w),
+      height: Math.round(h),
+    });
   }, []);
 
-  // Handle Escape key
+  // Escape key cancels
   useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
+    const onKey = async (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        await emit("region-selection-cancelled", {});
         const win = getCurrentWindow();
         await win.hide();
+        await emitTo("main", "region-selection-cancelled", {});
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   return (
-    <div
-      className="fixed inset-0 w-full h-full overflow-hidden"
-      style={{ cursor: isSelecting ? "crosshair" : "crosshair", background: "transparent" }}
-    >
+    <div className="fixed inset-0 w-full h-full overflow-hidden" style={{ cursor: "crosshair", background: "transparent" }}>
+      {!screenshotData && (
+        <div className="flex items-center justify-center w-full h-full bg-black/60 text-white text-base font-medium">
+          Preparing capture…
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 w-full h-full"
+        style={{ display: screenshotData ? "block" : "none", cursor: "crosshair" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        style={{ display: screenshotData ? "block" : "none" }}
       />
-      {!screenshotData && (
-        <div className="flex items-center justify-center w-full h-full bg-black/50 text-white text-lg">
-          Preparing capture...
-        </div>
-      )}
     </div>
   );
 }

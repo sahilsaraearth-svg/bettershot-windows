@@ -16,7 +16,6 @@ use commands::{
 
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-/// Shows the main application window
 fn show_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -34,9 +33,7 @@ fn show_main_window(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Er
         let window_clone = window.clone();
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if let Err(e) = window_clone.hide() {
-                    eprintln!("Failed to hide window: {}", e);
-                }
+                let _ = window_clone.hide();
                 api.prevent_close();
             }
         });
@@ -55,29 +52,26 @@ pub fn run() {
             Some(vec!["--hidden"]),
         ))
         .setup(|app| {
-            // Create the main window but keep it hidden initially
-            let window =
-                WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                    .title("Better Shot")
-                    .inner_size(1200.0, 800.0)
-                    .min_inner_size(800.0, 600.0)
-                    .center()
-                    .resizable(true)
-                    .decorations(true)
-                    .visible(false)
-                    .build()?;
+            // ── Main window (hidden on start) ──────────────────────────────
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Better Shot")
+                .inner_size(1200.0, 800.0)
+                .min_inner_size(800.0, 600.0)
+                .center()
+                .resizable(true)
+                .decorations(true)
+                .visible(false)
+                .build()?;
 
             let window_clone = window.clone();
             window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    if let Err(e) = window_clone.hide() {
-                        eprintln!("Failed to hide window: {}", e);
-                    }
+                    let _ = window_clone.hide();
                     api.prevent_close();
                 }
             });
 
-            // Quick overlay window
+            // ── Quick overlay window ───────────────────────────────────────
             let overlay = WebviewWindowBuilder::new(
                 app,
                 "quick-overlay",
@@ -94,20 +88,18 @@ pub fn run() {
             let overlay_clone = overlay.clone();
             overlay.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    if let Err(e) = overlay_clone.hide() {
-                        eprintln!("Failed to hide overlay window: {}", e);
-                    }
+                    let _ = overlay_clone.hide();
                     api.prevent_close();
                 }
             });
 
-            // Region selector window - fullscreen transparent overlay
+            // ── Region selector — fullscreen transparent overlay ───────────
             let selector = WebviewWindowBuilder::new(
                 app,
                 "region-selector",
                 WebviewUrl::App("index.html?selector=1".into()),
             )
-            .title("Better Shot – Select Region")
+            .title("Select Region")
             .fullscreen(true)
             .decorations(false)
             .transparent(true)
@@ -119,14 +111,12 @@ pub fn run() {
             let selector_clone = selector.clone();
             selector.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    if let Err(e) = selector_clone.hide() {
-                        eprintln!("Failed to hide selector: {}", e);
-                    }
+                    let _ = selector_clone.hide();
                     api.prevent_close();
                 }
             });
 
-            // Build system tray
+            // ── System tray ────────────────────────────────────────────────
             use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 
             let open_item = MenuItemBuilder::with_id("open", "Open Better Shot").build(app)?;
@@ -158,34 +148,28 @@ pub fn run() {
                 .menu(&menu)
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Better Shot")
-                .on_menu_event(move |app, event| {
-                    match event.id().as_ref() {
-                        "open" => {
-                            if let Err(e) = show_main_window(app) {
-                                eprintln!("Failed to show window: {}", e);
-                            }
-                        }
-                        "capture_region" => {
-                            let _ = app.emit("capture-triggered", ());
-                        }
-                        "capture_screen" => {
-                            let _ = app.emit("capture-fullscreen", ());
-                        }
-                        "capture_window" => {
-                            let _ = app.emit("capture-window", ());
-                        }
-                        "preferences" => {
-                            if let Err(e) = show_main_window(app) {
-                                eprintln!("Failed to show window: {}", e);
-                            } else {
-                                let _ = app.emit("open-preferences", ());
-                            }
-                        }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
+                .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "open" => {
+                        let _ = show_main_window(app);
                     }
+                    "capture_region" => {
+                        let _ = app.emit("capture-triggered", ());
+                    }
+                    "capture_screen" => {
+                        let _ = app.emit("capture-fullscreen", ());
+                    }
+                    "capture_window" => {
+                        let _ = app.emit("capture-window", ());
+                    }
+                    "preferences" => {
+                        if let Ok(()) = show_main_window(app) {
+                            let _ = app.emit("open-preferences", ());
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .build(app)?;
 
