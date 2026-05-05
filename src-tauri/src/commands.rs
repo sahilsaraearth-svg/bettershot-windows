@@ -11,7 +11,7 @@ use crate::image::{crop_image, render_image_with_effects, save_base64_image, Cro
 use crate::screenshot::{
     capture_all_monitors as capture_monitors, capture_primary, MonitorShot,
 };
-use crate::utils::{generate_filename, get_desktop_path};
+use crate::utils::{generate_filename, get_desktop_path, strip_unc_prefix};
 
 static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 
@@ -100,11 +100,11 @@ pub async fn get_desktop_directory() -> Result<String, String> {
 /// Get the system temp directory path
 #[tauri::command]
 pub async fn get_temp_directory() -> Result<String, String> {
+    // Do NOT use .canonicalize() — on Windows it adds \\?\ prefix which breaks asset protocol
     let temp_dir = std::env::temp_dir();
-    let canonical = temp_dir.canonicalize().unwrap_or(temp_dir);
-    canonical
+    temp_dir
         .to_str()
-        .map(|s| s.to_string())
+        .map(|s| strip_unc_prefix(s))
         .ok_or_else(|| "Failed to convert temp directory path to string".to_string())
 }
 
@@ -266,7 +266,7 @@ pub async fn crop_and_save_region(
     cropped.save(&out_path)
         .map_err(|e| format!("Failed to save cropped screenshot: {}", e))?;
 
-    Ok(out_path.to_string_lossy().into_owned())
+    Ok(strip_unc_prefix(&out_path.to_string_lossy()))
 }
 
 /// Returns the pending screenshot as base64 for the RegionSelector to display.

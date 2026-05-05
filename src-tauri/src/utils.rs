@@ -13,6 +13,22 @@ pub fn get_desktop_path() -> AppResult<String> {
     Ok(desktop.to_string_lossy().into_owned())
 }
 
+/// Strip Windows extended-length path prefix (\\?\) which breaks asset protocol and web URLs.
+/// On non-Windows this is a no-op.
+pub fn strip_unc_prefix(path: &str) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        // \\?\ or //?/ prefix added by canonicalize() on Windows
+        if let Some(stripped) = path.strip_prefix(r"\\?\") {
+            return stripped.to_string();
+        }
+        if let Some(stripped) = path.strip_prefix(r"//?/") {
+            return stripped.to_string();
+        }
+    }
+    path.to_string()
+}
+
 /// Get current timestamp in milliseconds
 pub fn get_timestamp() -> AppResult<u64> {
     SystemTime::now()

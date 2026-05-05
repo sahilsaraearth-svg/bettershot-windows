@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::path::PathBuf;
 use xcap::Monitor;
 
-use crate::utils::{ensure_dir, generate_filename, generate_filename_with_id, AppResult};
+use crate::utils::{ensure_dir, generate_filename, generate_filename_with_id, strip_unc_prefix, AppResult};
 
 /// Represents a captured monitor screenshot with geometry info
 #[derive(Serialize, Clone, Debug)]
@@ -79,7 +79,7 @@ fn capture_single_monitor(monitor: &Monitor, save_path: &PathBuf) -> AppResult<M
         width,
         height,
         scale_factor,
-        path: screenshot_path.to_string_lossy().into_owned(),
+        path: strip_unc_prefix(&screenshot_path.to_string_lossy()),
     })
 }
 
@@ -103,7 +103,7 @@ pub fn capture_primary(save_dir: &str) -> AppResult<String> {
         .save(&screenshot_path)
         .map_err(|e| format!("Failed to save screenshot: {}", e))?;
     
-    Ok(screenshot_path.to_string_lossy().into_owned())
+    Ok(strip_unc_prefix(&screenshot_path.to_string_lossy()))
 }
 
 /// Capture a region from the primary monitor
