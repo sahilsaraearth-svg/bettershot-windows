@@ -208,9 +208,10 @@ function App() {
             finally { setIsCapturing(false); }
             return;
           }
+          // Restore window FIRST so it's visible when ImageEditor mounts and loads image
+          await restoreWindow();
           setTempScreenshotPath(croppedPath);
           setMode("editing");
-          await restoreWindow();
         } catch (err) { setError(err instanceof Error ? err.message : String(err)); await restoreWindow(); }
         finally { setIsCapturing(false); }
       });
@@ -257,7 +258,7 @@ function App() {
             await showQuickOverlay(savedPath);
             setIsCapturing(false); return;
           }
-          setTempScreenshotPath(screenshotPath); setMode("editing"); await restoreWindow();
+          await restoreWindow(); setTempScreenshotPath(screenshotPath); setMode("editing");
           setIsCapturing(false);
         }
         return;
@@ -276,7 +277,7 @@ function App() {
         finally { setIsCapturing(false); }
         return;
       }
-      setTempScreenshotPath(screenshotPath); setMode("editing"); await restoreWindowOnScreen(mouseX, mouseY);
+      await restoreWindowOnScreen(mouseX, mouseY); setTempScreenshotPath(screenshotPath); setMode("editing");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes("cancelled")) setError(msg);
@@ -325,7 +326,7 @@ function App() {
       u4 = await listen("open-preferences", () => { if (mounted) setMode("preferences"); });
       u5 = await listen<{ path: string }>("open-editor-for-path", async (event) => {
         if (!mounted) return;
-        setTempScreenshotPath(event.payload.path); setMode("editing"); await restoreWindow();
+        await restoreWindow(); setTempScreenshotPath(event.payload.path); setMode("editing");
       });
       u6 = await listen("show-last-capture-overlay", async () => {
         if (!mounted) return;

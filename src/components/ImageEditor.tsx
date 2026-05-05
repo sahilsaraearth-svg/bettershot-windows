@@ -115,23 +115,34 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
     }
 
     let cancelled = false;
+    let objectUrl: string | null = null;
 
-    // If already a data URI (returned by Rust capture commands), use directly.
-    // Otherwise read via Rust — bypasses Tauri asset protocol scope issues.
-    const loader = imagePath.startsWith("data:")
-      ? Promise.resolve(imagePath)
-      : invoke<string>("read_file_as_base64", { path: imagePath });
+    const loadImage = async () => {
+      try {
+        // Get raw bytes via Rust — works regardless of path format or asset protocol scope
+        const dataUri = imagePath.startsWith("data:")
+          ? imagePath
+          : await invoke<string>("read_file_as_base64", { path: imagePath });
 
-    loader
-      .then((dataUri) => {
         if (cancelled) return;
+
+        // Convert data URI → Blob → object URL
+        // blob: URLs work reliably in Tauri webview; data: URIs can fail on large images
+        const [header, b64] = dataUri.split(",");
+        const mime = header.split(":")[1].split(";")[0];
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: mime });
+        objectUrl = URL.createObjectURL(blob);
+
+        if (cancelled) { URL.revokeObjectURL(objectUrl); return; }
+
         const img = new Image();
         img.onload = () => {
           if (cancelled) return;
           setScreenshotImage(img);
           setImageLoaded(true);
-
-          // Calculate smart default padding: 10% of average dimension, capped at 400px
           const avgDimension = (img.width + img.height) / 2;
           const defaultPadding = Math.min(Math.round(avgDimension * 0.1), 400);
           actions.setPaddingTopTransient(defaultPadding);
@@ -140,16 +151,19 @@ export function ImageEditor({ imagePath, onSave, onCancel }: ImageEditorProps) {
           actions.setPaddingRightTransient(defaultPadding);
         };
         img.onerror = () => {
-          if (!cancelled) setLoadError(`Failed to decode image from: ${imagePath}`);
+          if (!cancelled) setLoadError("Failed to decode screenshot image");
         };
-        img.src = dataUri;
-      })
-      .catch((err) => {
-        if (!cancelled) setLoadError(`Failed to load image from: ${imagePath}\n${err}`);
-      });
+        img.src = objectUrl;
+      } catch (err) {
+        if (!cancelled) setLoadError(`Failed to load screenshot: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+
+    loadImage();
 
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [imagePath, actions]);
 
